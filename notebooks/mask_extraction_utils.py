@@ -1,24 +1,43 @@
-import torch
 import numpy as np
 import pandas as pd
-import os
+import os, glob
 import matplotlib.pyplot as plt
 from PIL import Image
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 
 from icecream import ic
-from utils import read_points
 
+def read_labels(input_file):
+    df = pd.read_csv(input_file)
+    df.rename(
+        columns={"Unnamed: 2": "image_name", "combined_scorer": "combined_scorer.0"},
+        inplace=True,
+    )
+    return df
 
-def prerun_settings():
-    # use bfloat16 for the entire notebook
-    torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
+def read_points(df, image_name):
+    row = df[df["image_name"] == image_name]
 
-    if torch.cuda.get_device_properties(0).major >= 8:
-        # turn on tfloat32 for Ampere GPUs (https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices)
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
+    cols = [col for col in df.columns.to_list() if "combined_scorer" in col]
+    points = []
+    for col in cols:
+
+        col_num = int(col.split(".")[-1])
+        if col_num % 2 == 1:
+            continue
+
+        # Take this point and the one after it
+        points.append(
+            
+                [
+                    float(row[f"combined_scorer.{col_num}"].values[0]),
+                    float(row[f"combined_scorer.{col_num+ 1}"].values[0]),
+                ]
+        )
+
+    points = np.array(points)
+    return points
 
 
 def show_mask(mask, ax, random_color=False, borders=True):
@@ -103,8 +122,8 @@ def show_masks(
 def process_image():
     IMAGE_PATH = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2/labeled-data/andrea_new-fifth_finger_r__EDS093__fifth_finger_r/img141.png"
     LABELS_PATH = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2/labeled-data/andrea_new-fifth_finger_r__EDS093__fifth_finger_r/CollectedData_combined_scorer.csv"
-    IMAGE_PATH = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2/labeled-data/andrea_new-fifth_finger_l__EDS047__fifth_finger_l/img100.png"
-    LABELS_PATH = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2/labeled-data/andrea_new-fifth_finger_l__EDS047__fifth_finger_l/CollectedData_combined_scorer.csv"
+    # IMAGE_PATH = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2/labeled-data/andrea_new-fifth_finger_l__EDS047__fifth_finger_l/img100.png"
+    # LABELS_PATH = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2/labeled-data/andrea_new-fifth_finger_l__EDS047__fifth_finger_l/CollectedData_combined_scorer.csv"
     # IMAGE_PATH = "images/truck.jpg"
     image_name = os.path.split(IMAGE_PATH)[-1]
     ic(image_name)
@@ -131,8 +150,8 @@ def process_image():
     predictor.set_image(image)
 
     input_point = np.array([[500, 375]])
-    input_point = np.array([points[0]])
-    input_label = np.array([1])
+    input_point = np.array(points)
+    input_label = np.array([1] * len(points))
 
     plt.figure(figsize=(10, 10))
     plt.imshow(image)
@@ -154,7 +173,56 @@ def process_image():
     ic(masks[2])
 
     show_masks(image, masks, scores, point_coords=input_point, input_labels=input_label, borders=True)
+    
 
-if __name__ == "__main__":
-    prerun_settings()
-    process_image()
+def process_folder(folder, label_csv, predictor):
+    labels_df = read_labels(label_csv)
+    
+    # Iterate through all images
+    all_images = glob.glob(os.path.join(folder, "*.png"))
+    
+    for full_image_path in all_images:
+        image_name = os.path.split(full_image_path)[-1]
+        points = read_points(labels_df, image_name)
+        
+        image = Image.open(full_image_path)
+        image = np.array(image.convert("RGB"))
+        
+        predictor.set_image(image)
+        ic(points)
+        input_point = np.array(points)
+        input_label = np.array([1] * len(points))
+
+        masks, scores, logits = predictor.predict(
+            point_coords=input_point,
+            point_labels=input_label,
+            multimask_output=True,
+        )
+        
+        sorted_ind = np.argsort(scores)[::-1]
+        masks = masks[sorted_ind]
+        scores = scores[sorted_ind]
+        logits = logits[sorted_ind]
+
+        show_masks(image, masks, scores, point_coords=input_point, input_labels=input_label, borders=True)
+
+
+    
+def process_all_folders(folders, output_folder, folder_prefix):
+    os.makedirs(output_folder, exist_ok=True)
+
+    sam2_checkpoint = "../checkpoints/sam2_hiera_large.pt"
+    model_cfg = "sam2_hiera_l.yaml"
+
+    sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda")
+
+    predictor = SAM2ImagePredictor(sam2_model)
+    
+    for folder in folders:
+        label_csv = glob.glob(os.path.join(folder, "*scorer.csv"))[0]
+        process_folder(folder, label_csv, predictor)
+        quit()
+        # ic(label_csv)
+        
+        
+        
