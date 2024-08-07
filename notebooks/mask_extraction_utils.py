@@ -8,6 +8,7 @@ from sam2.sam2_image_predictor import SAM2ImagePredictor
 
 from icecream import ic
 
+
 def read_labels(input_file):
     df = pd.read_csv(input_file)
     df.rename(
@@ -15,6 +16,7 @@ def read_labels(input_file):
         inplace=True,
     )
     return df
+
 
 def read_points(df, image_name):
     row = df[df["image_name"] == image_name]
@@ -29,11 +31,10 @@ def read_points(df, image_name):
 
         # Take this point and the one after it
         points.append(
-            
-                [
-                    float(row[f"combined_scorer.{col_num}"].values[0]),
-                    float(row[f"combined_scorer.{col_num+ 1}"].values[0]),
-                ]
+            [
+                float(row[f"combined_scorer.{col_num}"].values[0]),
+                float(row[f"combined_scorer.{col_num+ 1}"].values[0]),
+            ]
         )
 
     points = np.array(points)
@@ -100,7 +101,7 @@ def show_masks(
     point_coords=None,
     box_coords=None,
     input_labels=None,
-    borders=True,
+    borders=False,
 ):
     for i, (mask, score) in enumerate(zip(masks, scores)):
         plt.figure(figsize=(10, 10))
@@ -117,6 +118,54 @@ def show_masks(
         plt.axis("off")
         # plt.show()
         plt.savefig(f"image-{score}.png")
+
+
+def plot_single_img_mask(
+    image,
+    mask,
+    score,
+    point_coords=None,
+    box_coords=None,
+    input_labels=None,
+    borders=True,
+    image_name=None,
+):
+
+    plt.figure(figsize=(10, 10))
+    plt.imshow(image)
+    show_mask(mask, plt.gca(), borders=borders)
+    plt.axis("off")
+    # plt.show()
+    plt.savefig(f"image-{score}.png")
+
+    if image_name is None:
+        image_name = f"image-{mask}.png"
+    plt.savefig(image_name)
+
+
+def show_masks_combined(
+    image,
+    masks,
+    scores,
+    point_coords=None,
+    box_coords=None,
+    input_labels=None,
+    borders=True,
+    image_name=None,
+):
+    # plt.figure(figsize=(10, 30))
+    fig, axs = plt.subplots(len(scores), figsize=(15, 30))
+    for i, (mask, score) in enumerate(zip(masks, scores)):
+        axs[i].imshow(image)
+        show_mask(mask, axs[i], borders=borders)
+        axs[i].axis("off")
+        axs[i].set_title(
+            f"Mask {i}, Score: {score:.3f}, Num Pxls: {np.sum(mask):.0f}", fontsize=30
+        )
+
+    if image_name is None:
+        image_name = f"image-{score}.png"
+    plt.savefig(image_name)
 
 
 def process_image():
@@ -164,7 +213,7 @@ def process_image():
         point_labels=input_label,
         multimask_output=True,
     )
-    
+
     sorted_ind = np.argsort(scores)[::-1]
     masks = masks[sorted_ind]
     scores = scores[sorted_ind]
@@ -172,24 +221,31 @@ def process_image():
 
     ic(masks[2])
 
-    show_masks(image, masks, scores, point_coords=input_point, input_labels=input_label, borders=True)
-    
+    show_masks(
+        image,
+        masks,
+        scores,
+        point_coords=input_point,
+        input_labels=input_label,
+        borders=True,
+    )
 
-def process_folder(folder, label_csv, predictor):
+
+def process_folder(folder, label_csv, predictor, output_folder):
     labels_df = read_labels(label_csv)
-    
+
     # Iterate through all images
     all_images = glob.glob(os.path.join(folder, "*.png"))
-    
+    mask_pixels = None
+
     for full_image_path in all_images:
         image_name = os.path.split(full_image_path)[-1]
         points = read_points(labels_df, image_name)
-        
+
         image = Image.open(full_image_path)
         image = np.array(image.convert("RGB"))
-        
+
         predictor.set_image(image)
-        ic(points)
         input_point = np.array(points)
         input_label = np.array([1] * len(points))
 
@@ -198,16 +254,57 @@ def process_folder(folder, label_csv, predictor):
             point_labels=input_label,
             multimask_output=True,
         )
-        
+
         sorted_ind = np.argsort(scores)[::-1]
         masks = masks[sorted_ind]
         scores = scores[sorted_ind]
         logits = logits[sorted_ind]
 
-        show_masks(image, masks, scores, point_coords=input_point, input_labels=input_label, borders=True)
+        output_image = os.path.join(output_folder, image_name)
 
+        # if no previous mask, make the figures and manually select which one to use
+        delta = image.size
 
+        if not mask_pixels:
+            show_masks_combined(
+                image,
+                masks,
+                scores,
+                point_coords=input_point,
+                input_labels=input_label,
+                borders=True,
+                image_name=output_image,
+            )
+
+            mask_id = int(input("Which mask to select? 0-indexed\n"))
+            mask_pixels = masks[mask_id].sum()
+
+        else:
+            for i, mask in enumerate(masks):
+                if delta > abs(mask_pixels - mask.sum()):
+                    mask_id = i
+                    delta = abs(mask_pixels - mask.sum())
+
+        ic(mask_id, delta)
+
+        # Save the mask for future use
+        image_name_base = os.path.splitext(image_name)[0]
+        output_npy = os.path.join(output_folder, f"{image_name_base}")
+        output_image_name = os.path.join(output_folder, f"{image_name_base}-mask_{mask_id}.png")
+        np.save(output_npy, masks[mask_id])
+        plot_single_img_mask(
+            image,
+            masks[mask_id],
+            scores[mask_id],
+            borders=False,
+            image_name=output_image_name,
+        )
+
+    # Copy the original images to the output folder to use with the new masks
     
+    
+
+
 def process_all_folders(folders, output_folder, folder_prefix):
     os.makedirs(output_folder, exist_ok=True)
 
@@ -217,12 +314,14 @@ def process_all_folders(folders, output_folder, folder_prefix):
     sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda")
 
     predictor = SAM2ImagePredictor(sam2_model)
-    
+
     for folder in folders:
         label_csv = glob.glob(os.path.join(folder, "*scorer.csv"))[0]
-        process_folder(folder, label_csv, predictor)
+        outer_folder = os.path.split(folder)[-1]
+        cur_output_folder = os.path.join(output_folder, outer_folder, "masks")
+        cur_output_folder = cur_output_folder.replace(folder_prefix, "")
+
+        os.makedirs(cur_output_folder, exist_ok=True)
+        process_folder(folder, label_csv, predictor, cur_output_folder)
         quit()
         # ic(label_csv)
-        
-        
-        
