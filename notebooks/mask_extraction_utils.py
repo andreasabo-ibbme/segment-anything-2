@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import os, glob
+import os, glob, shutil
 import matplotlib.pyplot as plt
 from PIL import Image
 from sam2.build_sam import build_sam2
@@ -166,69 +166,7 @@ def show_masks_combined(
     if image_name is None:
         image_name = f"image-{score}.png"
     plt.savefig(image_name)
-
-
-def process_image():
-    IMAGE_PATH = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2/labeled-data/andrea_new-fifth_finger_r__EDS093__fifth_finger_r/img141.png"
-    LABELS_PATH = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2/labeled-data/andrea_new-fifth_finger_r__EDS093__fifth_finger_r/CollectedData_combined_scorer.csv"
-    # IMAGE_PATH = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2/labeled-data/andrea_new-fifth_finger_l__EDS047__fifth_finger_l/img100.png"
-    # LABELS_PATH = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2/labeled-data/andrea_new-fifth_finger_l__EDS047__fifth_finger_l/CollectedData_combined_scorer.csv"
-    # IMAGE_PATH = "images/truck.jpg"
-    image_name = os.path.split(IMAGE_PATH)[-1]
-    ic(image_name)
-    points = read_points(LABELS_PATH, image_name)
-    ic(points)
-
-    # quit()
-
-    image = Image.open(IMAGE_PATH)
-    image = np.array(image.convert("RGB"))
-
-    plt.figure(figsize=(10, 10))
-    plt.imshow(image)
-    plt.axis("on")
-    # plt.show()
-    plt.savefig("image.png")
-
-    sam2_checkpoint = "../checkpoints/sam2_hiera_large.pt"
-    model_cfg = "sam2_hiera_l.yaml"
-
-    sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda")
-
-    predictor = SAM2ImagePredictor(sam2_model)
-    predictor.set_image(image)
-
-    input_point = np.array([[500, 375]])
-    input_point = np.array(points)
-    input_label = np.array([1] * len(points))
-
-    plt.figure(figsize=(10, 10))
-    plt.imshow(image)
-    show_points(input_point, input_label, plt.gca())
-    plt.axis("on")
-    plt.savefig("image_with_point.png")
-
-    masks, scores, logits = predictor.predict(
-        point_coords=input_point,
-        point_labels=input_label,
-        multimask_output=True,
-    )
-
-    sorted_ind = np.argsort(scores)[::-1]
-    masks = masks[sorted_ind]
-    scores = scores[sorted_ind]
-    logits = logits[sorted_ind]
-
-    ic(masks[2])
-
-    show_masks(
-        image,
-        masks,
-        scores,
-        point_coords=input_point,
-        input_labels=input_label,
-        borders=True,
-    )
+    plt.show()
 
 
 def process_folder(folder, label_csv, predictor, output_folder):
@@ -240,6 +178,11 @@ def process_folder(folder, label_csv, predictor, output_folder):
 
     for full_image_path in all_images:
         image_name = os.path.split(full_image_path)[-1]
+        image_name_base = os.path.splitext(image_name)[0]
+
+        if os.path.exists(os.path.join(output_folder, image_name)):
+            continue
+
         points = read_points(labels_df, image_name)
 
         image = Image.open(full_image_path)
@@ -260,7 +203,10 @@ def process_folder(folder, label_csv, predictor, output_folder):
         scores = scores[sorted_ind]
         logits = logits[sorted_ind]
 
-        output_image = os.path.join(output_folder, image_name)
+        output_image = os.path.join(
+            output_folder, "mask_images", f"{image_name_base}-all_masks.png"
+        )
+        os.makedirs(os.path.dirname(output_image), exist_ok=True)
 
         # if no previous mask, make the figures and manually select which one to use
         delta = image.size
@@ -277,7 +223,7 @@ def process_folder(folder, label_csv, predictor, output_folder):
             )
 
             mask_id = int(input("Which mask to select? 0-indexed\n"))
-            mask_pixels = masks[mask_id].sum()
+            plt.close()
 
         else:
             for i, mask in enumerate(masks):
@@ -285,28 +231,42 @@ def process_folder(folder, label_csv, predictor, output_folder):
                     mask_id = i
                     delta = abs(mask_pixels - mask.sum())
 
-        ic(mask_id, delta)
+        # Run through one more iteration
+        mask_input = logits[mask_id, :, :]  # Choose the model's best mask
+        mask, score, _ = predictor.predict(
+            point_coords=input_point,
+            point_labels=input_label,
+            mask_input=mask_input[None, :, :],
+            multimask_output=False,
+        )
+
+        if not mask_pixels:
+            mask_pixels = mask.sum()
+
 
         # Save the mask for future use
-        image_name_base = os.path.splitext(image_name)[0]
-        output_npy = os.path.join(output_folder, f"{image_name_base}")
-        output_image_name = os.path.join(output_folder, f"{image_name_base}-mask_{mask_id}.png")
-        np.save(output_npy, masks[mask_id])
+        output_npy = os.path.join(output_folder, "mask_data", f"{image_name_base}")
+        output_image_name = os.path.join(
+            output_folder, "mask_images", f"{image_name_base}-mask_{mask_id}.png"
+        )
+
+        os.makedirs(os.path.dirname(output_npy), exist_ok=True)
+        os.makedirs(os.path.dirname(output_image_name), exist_ok=True)
+
+        np.save(output_npy, mask)
         plot_single_img_mask(
             image,
-            masks[mask_id],
-            scores[mask_id],
+            mask,
+            score,
             borders=False,
             image_name=output_image_name,
         )
 
-    # Copy the original images to the output folder to use with the new masks
-    
-    
+        # Copy the original images to the output folder to use with the new masks
+        shutil.copy2(full_image_path, output_folder)
 
 
 def process_all_folders(folders, output_folder, folder_prefix):
-    os.makedirs(output_folder, exist_ok=True)
 
     sam2_checkpoint = "../checkpoints/sam2_hiera_large.pt"
     model_cfg = "sam2_hiera_l.yaml"
@@ -318,10 +278,8 @@ def process_all_folders(folders, output_folder, folder_prefix):
     for folder in folders:
         label_csv = glob.glob(os.path.join(folder, "*scorer.csv"))[0]
         outer_folder = os.path.split(folder)[-1]
-        cur_output_folder = os.path.join(output_folder, outer_folder, "masks")
+        cur_output_folder = os.path.join(output_folder, outer_folder)
         cur_output_folder = cur_output_folder.replace(folder_prefix, "")
 
         os.makedirs(cur_output_folder, exist_ok=True)
         process_folder(folder, label_csv, predictor, cur_output_folder)
-        quit()
-        # ic(label_csv)
