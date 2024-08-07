@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import os, glob, shutil
 import matplotlib.pyplot as plt
+from IPython.display import display, clear_output
+
 from PIL import Image
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
@@ -131,12 +133,12 @@ def plot_single_img_mask(
     image_name=None,
 ):
 
-    plt.figure(figsize=(10, 10))
+    plt.figure(figsize=(18, 20))
     plt.imshow(image)
     show_mask(mask, plt.gca(), borders=borders)
     plt.axis("off")
     # plt.show()
-    plt.savefig(f"image-{score}.png")
+    # plt.savefig(f"image-{score}.png")
 
     if image_name is None:
         image_name = f"image-{mask}.png"
@@ -154,7 +156,8 @@ def show_masks_combined(
     image_name=None,
 ):
     # plt.figure(figsize=(10, 30))
-    fig, axs = plt.subplots(len(scores), figsize=(15, 30))
+    clear_output()
+    fig, axs = plt.subplots(len(scores), figsize=(5, 10))
     for i, (mask, score) in enumerate(zip(masks, scores)):
         axs[i].imshow(image)
         show_mask(mask, axs[i], borders=borders)
@@ -165,8 +168,10 @@ def show_masks_combined(
 
     if image_name is None:
         image_name = f"image-{score}.png"
+        
+    
     plt.savefig(image_name)
-    plt.show()
+    display(fig)
 
 
 def process_folder(folder, label_csv, predictor, output_folder):
