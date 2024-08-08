@@ -143,7 +143,7 @@ def plot_single_img_mask(
     if image_name is None:
         image_name = f"image-{mask}.png"
     plt.savefig(image_name)
-
+    plt.close()
 
 def show_masks_combined(
     image,
@@ -156,7 +156,7 @@ def show_masks_combined(
     image_name=None,
 ):
     # plt.figure(figsize=(10, 30))
-    clear_output()
+    # clear_output()
     fig, axs = plt.subplots(len(scores), figsize=(5, 10))
     for i, (mask, score) in enumerate(zip(masks, scores)):
         axs[i].imshow(image)
@@ -171,11 +171,13 @@ def show_masks_combined(
         
     
     plt.savefig(image_name)
-    display(fig)
+    # display(fig)
 
 
-def process_folder(folder, label_csv, predictor, output_folder):
+def process_folder(folder, label_csv, predictor, output_folder, select_largest):
+    ic(f"Processing: {folder}")
     labels_df = read_labels(label_csv)
+    
 
     # Iterate through all images
     all_images = glob.glob(os.path.join(folder, "*.png"))
@@ -227,7 +229,17 @@ def process_folder(folder, label_csv, predictor, output_folder):
                 image_name=output_image,
             )
 
-            mask_id = int(input("Which mask to select? 0-indexed\n"))
+            if select_largest:
+                mask_sums = []
+                for i, mask in enumerate(masks):
+                    mask_sums.append(mask.sum())
+                    
+                mask_id = np.argmax(np.array(mask_sums))
+                # ic(mask_id, mask_sums)
+
+            else:
+                mask_id = int(input("Which mask to select? 0-indexed\n"))
+                
             plt.close()
 
         else:
@@ -271,14 +283,14 @@ def process_folder(folder, label_csv, predictor, output_folder):
         shutil.copy2(full_image_path, output_folder)
 
 
-def process_all_folders(folders, output_folder, folder_prefix):
+def process_all_folders(folders, output_folder, folder_prefix, select_largest=True):
 
     sam2_checkpoint = "../checkpoints/sam2_hiera_large.pt"
     model_cfg = "sam2_hiera_l.yaml"
 
     sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda")
 
-    predictor = SAM2ImagePredictor(sam2_model)
+    predictor = SAM2ImagePredictor(sam2_model, max_hole_area=20)
 
     for folder in folders:
         label_csv = glob.glob(os.path.join(folder, "*scorer.csv"))[0]
@@ -287,4 +299,4 @@ def process_all_folders(folders, output_folder, folder_prefix):
         cur_output_folder = cur_output_folder.replace(folder_prefix, "")
 
         os.makedirs(cur_output_folder, exist_ok=True)
-        process_folder(folder, label_csv, predictor, cur_output_folder)
+        process_folder(folder, label_csv, predictor, cur_output_folder, select_largest)
