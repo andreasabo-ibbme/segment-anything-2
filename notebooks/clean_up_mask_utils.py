@@ -154,6 +154,7 @@ def show_masks_combined(
     input_labels=None,
     borders=True,
     image_name=None,
+    save_image=True,
 ):
     # plt.figure(figsize=(10, 30))
     # clear_output()
@@ -169,13 +170,13 @@ def show_masks_combined(
     if image_name is None:
         image_name = f"image-{score}.png"
         
-    
-    plt.savefig(image_name)
+    if save_image:
+        plt.savefig(image_name)
     # display(fig)
 
 
-def process_folder(folder, label_csv, predictor, output_folder, select_largest):
-    ic(f"Processing: {folder}")
+def process_folder(folder, label_csv, predictor, bg_folder, select_largest):
+    # ic(f"Processing: {folder}")
     labels_df = read_labels(label_csv)
     
 
@@ -187,8 +188,6 @@ def process_folder(folder, label_csv, predictor, output_folder, select_largest):
         image_name = os.path.split(full_image_path)[-1]
         image_name_base = os.path.splitext(image_name)[0]
 
-        if os.path.exists(os.path.join(output_folder, image_name)):
-            continue
 
         points = read_points(labels_df, image_name)
 
@@ -210,10 +209,10 @@ def process_folder(folder, label_csv, predictor, output_folder, select_largest):
         scores = scores[sorted_ind]
         logits = logits[sorted_ind]
 
-        output_image = os.path.join(
-            output_folder, "mask_images", f"{image_name_base}-all_masks.png"
-        )
-        os.makedirs(os.path.dirname(output_image), exist_ok=True)
+        # output_image = os.path.join(
+        #     output_folder, "mask_images", f"{image_name_base}-all_masks.png"
+        # )
+        # os.makedirs(os.path.dirname(output_image), exist_ok=True)
 
         # if no previous mask, make the figures and manually select which one to use
         delta = image.size
@@ -226,7 +225,7 @@ def process_folder(folder, label_csv, predictor, output_folder, select_largest):
                 point_coords=input_point,
                 input_labels=input_label,
                 borders=True,
-                image_name=output_image,
+                save_image=False
             )
 
             if select_largest:
@@ -257,13 +256,14 @@ def process_folder(folder, label_csv, predictor, output_folder, select_largest):
             multimask_output=False,
         )
 
-        # if not mask_pixels:
-        #     mask_pixels = mask.sum()
-        #     if mask_pixels < 100:
-        #         ic("CANNOT DETECT in: ", full_image_path)
-
+        mask_pixels = mask.sum()
+        if mask_pixels < 100:
+            ic("CANNOT DETECT in: ", full_image_path)
+            bg_path = os.path.join(bg_folder, image_name_base)
+            shutil.rmtree(bg_path)
         
-        
+            
+        continue
         # Save the mask for future use
         output_npy = os.path.join(output_folder, "mask_data", f"{image_name_base}")
         output_image_name = os.path.join(
@@ -286,7 +286,7 @@ def process_folder(folder, label_csv, predictor, output_folder, select_largest):
         shutil.copy2(full_image_path, output_folder)
 
 
-def process_all_folders(folders, output_folder, folder_prefix, select_largest=True):
+def clean_up_all_folders(folders, bg_folder, folder_prefix, select_largest=True):
 
     sam2_checkpoint = "../checkpoints/sam2_hiera_large.pt"
     model_cfg = "sam2_hiera_l.yaml"
@@ -298,9 +298,10 @@ def process_all_folders(folders, output_folder, folder_prefix, select_largest=Tr
     for folder in folders:
         label_csv = glob.glob(os.path.join(folder, "*scorer.csv"))[0]
         outer_folder = os.path.split(folder)[-1]
-        cur_output_folder = os.path.join(output_folder, outer_folder)
-        cur_output_folder = cur_output_folder.replace(folder_prefix, "")
+        # cur_output_folder = os.path.join(output_folder, outer_folder)
+        # cur_output_folder = cur_output_folder.replace(folder_prefix, "")
+        outer_folder = outer_folder.replace(folder_prefix, "")
 
 
-        os.makedirs(cur_output_folder, exist_ok=True)
-        process_folder(folder, label_csv, predictor, cur_output_folder, select_largest)
+        # os.makedirs(cur_output_folder, exist_ok=True)
+        process_folder(folder, label_csv, predictor, os.path.join(bg_folder, outer_folder), select_largest)

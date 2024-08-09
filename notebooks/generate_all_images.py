@@ -7,9 +7,10 @@ from icecream import ic
 import generate_image_utils
 
 INPUT_FOLDER = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants_SAM2/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2_auto/labeled-data/"
-OUTPUT_FOLDER = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants_SAM2/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2_auto/labeled-data-new-bg/"
+OUTPUT_FOLDER = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants_SAM2/EDS001_EDS100__FifthFinger-liam-2023-07-04_SAM2_auto/labeled-data-new-bg-png/"
 BACKGROUND_IMAGES = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants_SAM2/backgrounds_edited"
 
+IMG_EXT = "png"
 NUM_IMAGES_TO_GENERATE = 5
 GAMMA_RANGE = [0.4, 1.25]
 
@@ -27,7 +28,7 @@ def add_new_background(image, mask, background_name, output_folder):
     bg_image_base = os.path.splitext(os.path.split(background_name)[-1])[0]
     gamma = random.uniform(*GAMMA_RANGE)
     combined_image = generate_image_utils.apply_mask(image, bg, mask, gamma)
-    output_image_name = os.path.join(output_folder, f"{bg_image_base}_{gamma:03f}.jpg")
+    output_image_name = os.path.join(output_folder, f"{bg_image_base}_{gamma:03f}.{IMG_EXT}")
     cv2.imwrite(output_image_name, combined_image)
 
 
@@ -37,7 +38,7 @@ if __name__ == "__main__":
     ic(len(all_folders))
     for folder_i, folder in enumerate(all_folders):
         ic(folder_i)
-        images = glob.glob(os.path.join(folder, "*.png"))
+        images = glob.glob(os.path.join(folder, f"*.{IMG_EXT}"))
         video_folder = os.path.split(folder)[-1]
         for image_path in images:
             image_name = os.path.split(image_path)[-1]
