@@ -20,7 +20,7 @@ def read_labels(input_file):
     return df
 
 
-def read_points(df, image_name):
+def read_points_DLC(df, image_name):
     row = df[df["image_name"] == image_name]
 
     cols = [col for col in df.columns.to_list() if "combined_scorer" in col]
@@ -40,6 +40,14 @@ def read_points(df, image_name):
         )
 
     points = np.array(points)
+    return points
+
+def read_points_simple(label_csv):
+    df = pd.read_csv(label_csv)
+    x = df.x.to_list()
+    y = df.y.to_list()
+    
+    points = np.array(list(zip(x, y)))
     return points
 
 
@@ -174,10 +182,13 @@ def show_masks_combined(
     # display(fig)
 
 
-def process_folder(folder, label_csv, predictor, output_folder, select_largest):
+def process_folder(folder, label_csv, predictor, output_folder, USE_DLC_LABELS, select_largest):
     ic(f"Processing: {folder}")
-    labels_df = read_labels(label_csv)
-    
+    if USE_DLC_LABELS:
+        labels_df = read_labels(label_csv)
+    else:
+        points = read_points_simple(label_csv)
+        
 
     # Iterate through all images
     all_images = glob.glob(os.path.join(folder, "*.png"))
@@ -189,9 +200,9 @@ def process_folder(folder, label_csv, predictor, output_folder, select_largest):
 
         if os.path.exists(os.path.join(output_folder, image_name)):
             continue
-
-        points = read_points(labels_df, image_name)
-
+        
+        if USE_DLC_LABELS:
+            points = read_points_DLC(labels_df, image_name)
         image = Image.open(full_image_path)
         image = np.array(image.convert("RGB"))
 
@@ -286,7 +297,7 @@ def process_folder(folder, label_csv, predictor, output_folder, select_largest):
         shutil.copy2(full_image_path, output_folder)
 
 
-def process_all_folders(folders, output_folder, folder_prefix, select_largest=True):
+def process_all_folders(folders, output_folder, folder_prefix, USE_DLC_LABELS, select_largest=True):
 
     sam2_checkpoint = "../checkpoints/sam2_hiera_large.pt"
     model_cfg = "sam2_hiera_l.yaml"
@@ -296,11 +307,14 @@ def process_all_folders(folders, output_folder, folder_prefix, select_largest=Tr
     predictor = SAM2ImagePredictor(sam2_model, max_hole_area=20)
 
     for folder in folders:
-        label_csv = glob.glob(os.path.join(folder, "*scorer.csv"))[0]
+        if USE_DLC_LABELS:
+            label_csv = glob.glob(os.path.join(folder, "*scorer.csv"))[0]
+        else:
+            label_csv = glob.glob(os.path.join(folder, "pts_for_SAM.csv"))[0]
         outer_folder = os.path.split(folder)[-1]
         cur_output_folder = os.path.join(output_folder, outer_folder)
         cur_output_folder = cur_output_folder.replace(folder_prefix, "")
 
 
         os.makedirs(cur_output_folder, exist_ok=True)
-        process_folder(folder, label_csv, predictor, cur_output_folder, select_largest)
+        process_folder(folder, label_csv, predictor, cur_output_folder, USE_DLC_LABELS, select_largest)
