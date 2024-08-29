@@ -1,15 +1,18 @@
 import cv2
-import os
+import os, glob
 
 from icecream import ic
 
-BACKGROUND_IN = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants_SAM2/backgrounds"
-BACKGROUND_OUT = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants_SAM2/backgrounds_edited"
+BACKGROUND_IN = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants_SAM2/background_thumb"
+BACKGROUND_OUT = r"/home/saboa/mnt/n_drive/AMBIENT/Andrea_S/EDS/DLC_working_dir/dlc_projects_participants_SAM2/background_thumb_edited"
 # IMAGES_TO_EDIT = ["IMG_6351.jpg", "IMG_6352.jpg", "IMG_6354.jpg", "IMG_6358.jpg", "IMG_6356.jpg"]
 IMAGES_TO_EDIT = ["IMG_6350.jpg"] #, "IMG_6352.jpg", "IMG_6354.jpg", "IMG_6358.jpg", "IMG_6356.jpg"]
 
-OUTPUT_SIZE = (1920, 1080)
+IMAGES_TO_EDIT = None
 
+
+OUTPUT_SIZE = (1920, 1080)
+scale_factor = 1.275
 def center_bottom_crop(img, dim):
 	"""Returns center cropped image
 	Args:
@@ -28,17 +31,23 @@ def center_bottom_crop(img, dim):
 
 
 if __name__ == "__main__":
-    os.makedirs(BACKGROUND_OUT, exist_ok=True)
-    
-    for image_name in IMAGES_TO_EDIT:
-        full_file = os.path.join(BACKGROUND_IN, image_name)
-        image = cv2.imread(full_file)
-        
-        # Resize to twice the target size, then crop the middle
-        image = cv2.resize(image, (OUTPUT_SIZE[0]*2, OUTPUT_SIZE[1] *2))
-        
-        ccrop_img = center_bottom_crop(image, OUTPUT_SIZE)
-        output_name = os.path.join(BACKGROUND_OUT, image_name)
-        cv2.imwrite(output_name, ccrop_img)
+	os.makedirs(BACKGROUND_OUT, exist_ok=True)
+	
+	if IMAGES_TO_EDIT is None:
+		full_image_names = glob.glob(os.path.join(BACKGROUND_IN, "*"))
+		IMAGES_TO_EDIT = [os.path.basename(f) for f in full_image_names]
+		# ic(IMAGES_TO_EDIT)
+	# quit()
+ 
+	for image_name in IMAGES_TO_EDIT:
+		full_file = os.path.join(BACKGROUND_IN, image_name)
+		image = cv2.imread(full_file)
+		
+		# Resize by the scale factor, then crop the middle
+		image = cv2.resize(image, (int(OUTPUT_SIZE[0]*scale_factor), int(OUTPUT_SIZE[1] *scale_factor)))
+		
+		ccrop_img = center_bottom_crop(image, OUTPUT_SIZE)
+		output_name = os.path.join(BACKGROUND_OUT, image_name)
+		cv2.imwrite(output_name, ccrop_img)
 
-    pass
+	pass
