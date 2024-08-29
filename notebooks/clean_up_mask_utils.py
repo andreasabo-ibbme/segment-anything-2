@@ -257,11 +257,15 @@ def process_folder(folder, label_csv, predictor, bg_folder, select_largest):
         )
 
         mask_pixels = mask.sum()
-        if mask_pixels < 100:
-            ic("CANNOT DETECT in: ", full_image_path)
-            bg_path = os.path.join(bg_folder, image_name_base)
-            shutil.rmtree(bg_path)
         
+        if mask_pixels < 100:
+            mask_pixels = None
+            bg_path = os.path.join(bg_folder, image_name_base)
+            ic("CANNOT DETECT in: ", bg_path)
+            try:
+                shutil.rmtree(bg_path)
+            except Exception as e:
+                pass
             
         continue
         # Save the mask for future use
